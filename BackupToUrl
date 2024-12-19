@@ -1,0 +1,94 @@
+=================Diff Backup=================================
+DECLARE @name NVARCHAR(256) -- database name  
+DECLARE @path NVARCHAR(512) -- path for backup files  
+DECLARE @fileName NVARCHAR(512) -- filename for backup  
+DECLARE @fileDate NVARCHAR(40) -- used for file name
+ 
+-- specify database backup directory
+SET @path = 'https://10x124x0x25.blob.core.windows.net/differentialbackup/'  
+ 
+-- specify filename format
+SELECT @fileDate = CONVERT(NVARCHAR(20),GETDATE(),112)
+ 
+DECLARE db_cursor CURSOR READ_ONLY FOR  
+SELECT name
+FROM master.sys.databases
+WHERE name NOT IN ('model','tempdb')  -- exclude these databases
+AND state = 0 -- database is online
+AND is_in_standby = 0 -- database is not read only for log shipping
+ 
+OPEN db_cursor  
+FETCH NEXT FROM db_cursor INTO @name  
+ 
+WHILE @@FETCH_STATUS = 0  
+BEGIN  
+   SET @fileName = @path + @name + '_' + @fileDate + '.BAK'  
+   BACKUP DATABASE @name TO URL = @fileName with compression, differential, MAXTRANSFERSIZE = 4194304, BLOCKSIZE = 65536, CHECKSUM, FORMAT, STATS = 1
+ 
+   FETCH NEXT FROM db_cursor INTO @name  
+END  
+CLOSE db_cursor  
+DEALLOCATE db_cursor
+
+=================FULL Backup=================================
+
+DECLARE @name NVARCHAR(256) -- database name  
+DECLARE @path NVARCHAR(512) -- path for backup files  
+DECLARE @fileName NVARCHAR(512) -- filename for backup  
+DECLARE @fileDate NVARCHAR(40) -- used for file name
+ 
+-- specify database backup directory
+SET @path = 'https://10x124x0x27.blob.core.windows.net/fullbackup/'  
+ 
+-- specify filename format
+SELECT @fileDate = CONVERT(NVARCHAR(20),GETDATE(),112)
+ 
+DECLARE db_cursor CURSOR READ_ONLY FOR  
+SELECT name
+FROM master.sys.databases
+WHERE name NOT IN ('model','tempdb')  -- exclude these databases
+AND state = 0 -- database is online
+AND is_in_standby = 0 -- database is not read only for log shipping
+ 
+OPEN db_cursor  
+FETCH NEXT FROM db_cursor INTO @name  
+ 
+WHILE @@FETCH_STATUS = 0  
+BEGIN  
+   SET @fileName = @path + @name + '_' + @fileDate + '.BAK'  
+   BACKUP DATABASE @name TO URL = @fileName with compression, MAXTRANSFERSIZE = 4194304, BLOCKSIZE = 65536, CHECKSUM, FORMAT, STATS = 1
+ 
+   FETCH NEXT FROM db_cursor INTO @name  
+END  
+CLOSE db_cursor  
+DEALLOCATE db_cursor
+===============================================================================
+--sp=racw&st=2023-11-24T11:49:18Z&se=2023-11-24T19:49:18Z&sip=10.12.192.19&spr=https&sv=2022-11-02&sr=c&sig=cKD7uWDVIRwHp2KO8MVwTLMq5q3u1M8euxsaquxg5T0%3D
+--?sv=2022-11-02&ss=bf&srt=sco&sp=rwdlaciytf&se=2024-10-31T19:56:59Z&st=2023-11-24T11:56:59Z&sip=10.12.192.19&spr=https&sig=DB5Womu6%2FK23IGiYSNu23wsV%2F0OCdwGJcxBHEC%2FRbW8%3D
+
+DECLARE @Date AS NVARCHAR(25)
+    ,@TSQL AS NVARCHAR(MAX)
+    ,@ContainerName AS NVARCHAR(MAX)
+    ,@StorageAccountName AS VARCHAR(MAX)
+    ,@SASKey AS VARCHAR(MAX)
+    ,@DatabaseName AS SYSNAME;
+SELECT @Date = REPLACE(REPLACE(REPLACE(REPLACE(CONVERT(VARCHAR, GETDATE(), 100), '  ', '_'), ' ', '_'), '-', '_'), ':', '_');
+SELECT @StorageAccountName = 'dbbackupazrgp10109int01'; --- Find this from Azure Portal
+SELECT @ContainerName = 'ssisdbbackup'; --- Find this from Azure Portal
+SELECT @SASKey = 'sp=racw&st=2023-11-24T11:49:18Z&se=2023-11-24T19:49:18Z&sip=10.12.192.19&spr=https&sv=2022-11-02&sr=c&sig=cKD7uWDVIRwHp2KO8MVwTLMq5q3u1M8euxsaquxg5T0%3D'; --- Find this from Azure Portal
+SELECT @DatabaseName = 'master';
+IF NOT EXISTS (
+        SELECT *
+        FROM sys.credentials
+        WHERE name = '''https://' + @StorageAccountName + '.blob.core.windows.net/' + @ContainerName + ''''
+        )
+BEGIN
+    SELECT @TSQL = 'CREATE CREDENTIAL [https://' + @StorageAccountName + '.blob.core.windows.net/' + @ContainerName + '] WITH IDENTITY = ''SHARED ACCESS SIGNATURE'', SECRET = ''' + REPLACE(@SASKey, '?sv=', 'sv=') + ''';'
+    SELECT @TSQL
+    --EXEC (@TSQL)
+END
+SELECT @TSQL = 'BACKUP DATABASE [' + @DatabaseName + '] TO '
+SELECT @TSQL += 'URL = N''https://' + @StorageAccountName + '.blob.core.windows.net/' + @ContainerName + '/' + @DatabaseName + '_' + @Date + '.bak'''
+SELECT @TSQL += ' WITH COMPRESSION, MAXTRANSFERSIZE = 4194304, BLOCKSIZE = 65536, CHECKSUM, FORMAT, STATS = 1;'
+SELECT @TSQL
+--EXEC (@TSQL)
